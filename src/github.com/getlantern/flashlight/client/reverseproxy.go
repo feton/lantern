@@ -1,14 +1,15 @@
 package client
 
 import (
-	"net/http"
-	"net/http/httputil"
-	"runtime"
-	"time"
-
 	"github.com/getlantern/balancer"
 	"github.com/getlantern/detour"
 	"github.com/getlantern/flashlight/proxy"
+	"io/ioutil"
+	"net/http"
+	"net/http/httputil"
+	"runtime"
+	"strings"
+	"time"
 )
 
 // getReverseProxy waits for a message from client.rpCh to arrive and then it
@@ -52,9 +53,12 @@ func (client *Client) initReverseProxy(bal *balancer.Balancer, dumpHeaders bool)
 		Director: func(req *http.Request) {
 			// do nothing
 		},
-		Transport: withDumpHeaders(
-			dumpHeaders,
-			transport),
+		Transport: &errorRewritingRoundTripper{
+			withDumpHeaders(
+				dumpHeaders,
+				transport,
+			),
+		},
 		// Set a FlushInterval to prevent overly aggressive buffering of
 		// responses, which helps keep memory usage down
 		FlushInterval: 250 * time.Millisecond,
@@ -101,4 +105,24 @@ func (rt *headerDumpingRoundTripper) RoundTrip(req *http.Request) (resp *http.Re
 		proxy.DumpHeaders("Response", &resp.Header)
 	}
 	return
+}
+
+type errorRewritingRoundTripper struct {
+	orig http.RoundTripper
+}
+
+func (rt *errorRewritingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	res, err := rt.orig.RoundTrip(req)
+	if err != nil {
+		content := strings.SplitN(strings.TrimSpace(err.Error()), "\n", 2)
+		errmsg := strings.TrimSpace(content[0])
+
+		res = &http.Response{
+			Body: ioutil.NopCloser(strings.NewReader(errmsg)),
+		}
+
+		res.StatusCode = http.StatusServiceUnavailable
+		return res, nil
+	}
+	return res, err
 }
