@@ -1,3 +1,6 @@
+bbc.com
+radiojavan.com
+jadi.net
 firetweet.io
 herokuapp.com
 loggly.com
